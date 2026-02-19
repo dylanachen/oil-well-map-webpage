@@ -18,3 +18,24 @@ __pycache__/
 
 # Assignment PDF (optional: remove this line if you want to commit the handout)
 # lab6-s26.pdf
+
+# Python / general
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+.env
+.envrc
+.venv
+env/
+ENV/
+.mypy_cache/
+.ruff_cache/
+.cursorignore
+.cursorindexingignore

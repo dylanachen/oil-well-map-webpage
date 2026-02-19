@@ -1,3 +1,11 @@
+# oil-well-map-webpage
+
+Apache webpage serving an interactive map of scraped oil well data.
+
+This repo includes **Part 1** (PDF extraction and database) below; Part 2 is the map webpage.
+
+---
+
 # DSCI-560 Lab 6: Oil Wells Data Wrangling
 
 This project extracts well-specific information and stimulation data from scanned oil well PDF documents and stores them in a database.
