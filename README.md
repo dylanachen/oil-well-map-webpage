@@ -55,7 +55,3 @@ python pdf_extractor.py --db-path ./wells.db  # Custom DB path
 **wells** – One row per PDF: `id`, `api_number`, `well_file_no`, `well_name`, `latitude`, `longitude`, `address`, `county`, `field`, `operator`, `permit_number`, `permit_date`, `total_depth`, `formation`, `stimulation_notes`, `raw_extract`, `pdf_source`, `created_at`.
 
 **stimulation_data** – Per-well stimulation records: `id`, `well_id`, `date_stimulated`, `stimulated_formation`, `top_ft`, `bottom_ft`, `stimulation_stages`, `volume`, `volume_units`, `type_treatment`, `acid_pct`, `lbs_proppant`, `max_treatment_pressure_psi`, `max_treatment_rate`, `details`.
-
-## License
-
-See repository license.
