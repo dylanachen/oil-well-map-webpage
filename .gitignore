@@ -16,9 +16,6 @@ pdfs/*.pdf
 __pycache__/
 *.pyc
 
-# Assignment PDF (optional: remove this line if you want to commit the handout)
-# lab6-s26.pdf
-
 # Python / general
 *.py[cod]
 *$py.class
