@@ -2,9 +2,6 @@
 
 Apache webpage serving an interactive map of scraped oil well data.
 
-This repo includes **Part 1** (PDF extraction and database) below; Part 2 is the map webpage.
-
----
 
 # DSCI-560 Lab 6: Oil Wells Data Wrangling
 
@@ -45,9 +42,11 @@ This project extracts well-specific information and stimulation data from scanne
 
 ```bash
 source venv/bin/activate
-python pdf_extractor.py                       # Process all PDFs in pdfs/
+python pdf_extractor.py                       # Process all PDFs in pdfs/, output oil_wells.db
 python pdf_extractor.py --limit 10            # Process first 10 PDFs only (for testing)
-python pdf_extractor.py --pdf-dir pdfs        # Specify a different PDFs directory
+python pdf_extractor.py --pdf-dir pdfs        # PDF directory (default: pdfs)
+python pdf_extractor.py --db-path oil_wells.db   # Output database (default: oil_wells.db)
+python pdf_extractor.py --max-pages 300      # Max pages per PDF (default: 300)
 ```
 
 This will:
