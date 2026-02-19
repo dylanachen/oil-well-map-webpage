@@ -90,6 +90,10 @@ def extract_api(text):
                 if len(m.groups()) == 3:
                     return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
                 raw = m.group(1)
+                if len(raw) == 10:
+                    return f"{raw[:2]}-{raw[2:5]}-{raw[5:10]}"
+                if len(raw) == 11:
+                    return f"{raw[:2]}-{raw[2:5]}-{raw[5:11]}"
                 if len(raw) >= 10:
                     return f"{raw[:2]}-{raw[2:5]}-{raw[5:10]}"
                 return raw
@@ -496,10 +500,14 @@ def extract_stimulations(text):
         nums = [parse_num(n) for n in re.findall(r'[\d,]+\.?\d*', after)]
         nums = [v for v in nums if v is not None]
 
-        top_ft      = nums[0] if len(nums) > 0 and nums[0] > 100 else None
-        bottom_ft   = nums[1] if len(nums) > 1 and nums[1] > 100 else None
-        stim_stages = int(nums[2]) if len(nums) > 2 and nums[2] < 200 else None
-        volume      = nums[3] if len(nums) > 3 else None
+        # Skip leading year or small junk (e.g. 2023, 1, 2 from date) so they don't become top_ft
+        i = 0
+        while i < len(nums) and (nums[i] < 100 or 1990 <= nums[i] <= 2100):
+            i += 1
+        top_ft      = nums[i] if i < len(nums) and nums[i] > 100 else None
+        bottom_ft   = nums[i + 1] if i + 1 < len(nums) and nums[i + 1] > 100 else None
+        stim_stages = int(nums[i + 2]) if i + 2 < len(nums) and nums[i + 2] < 200 else None
+        volume      = nums[i + 3] if i + 3 < len(nums) else None
 
         volume_units = None
         m = re.search(r'\b(Barrels|BBL[Ss]?|Gallons?|GAL[Ss]?)\b', block, re.IGNORECASE)
