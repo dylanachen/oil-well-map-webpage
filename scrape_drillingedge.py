@@ -140,3 +140,120 @@ def construct_url(api_number, well_name, county):
     return f"{BASE_URL}/{STATE}/{county_portion}/wells/{well_name_portion}/{api_number}"
 
 
+# HTML Parsing function
+def parse_well_page(html, url=None):
+    # Extracting target fields from drillingedge well page
+    soup = BeautifulSoup(html, "html.parser")
+    result = {
+        "well_status": "N/A",
+        "well_type": "N/A",
+        "closest_city": "N/A",
+        "barrels_oil_produced": "0",
+        "mcf_gas_produced": "0",
+        "drillingedge_url": url or "N/A"
+    }
+
+    # All tags based on scraping from static fields on well pages
+
+    # <p class="block_stat"><span class="dropcap">1.1 k</span> Barrels of Oil Produced in Dec 2025</p>
+    # <p class="block_stat"><span class="dropcap">1.5 k</span> MCF of Gas Produced in Dec 2025</p>
+    for p_tag in soup.select("p.block_stat"):
+        text = p_tag.get_text(separator=" ", strip=True)
+        dropcap = p_tag.select_one("span.dropcap")
+        value = dropcap.get_text(strip=True) if dropcap else ""
+
+        if "barrels of oil produced" in text.lower():
+            result["barrels_oil_produced"] = value
+        elif "mcf of gas produced" in text.lower():
+            result["mcf_gas_produced"] = value
+        
+    # Well Detail Table
+        # <tr>
+        # <th>Well Status</th><td>Active</td>
+        # <th>Well Type</th><td>Oil &amp; Gas</td>
+        # <th>Township Range Section</th><td colspan="3">153 N 101 W 12</td>
+        # </tr>
+    for tr in soup.select("tr"):
+        ths = tr.find_all("th")
+        tds = tr.find_all("td")
+
+        # Aligning the th and td pairs to extract our info
+        cells = list(tr.children)
+        # Filter to only tags
+        cells = [cell for cell in cells if hasattr(cell, "name") and cell.name in ("th", "td")]
+
+        pairs = {}
+        i = 0
+        while i < len(cells) - 1:
+            if cells[i].name == "th":
+                key = cells[i].get_text(strip=True).lower()
+                value = cells[i + 1].get_text(strip=True)
+                pairs[key] = value
+                i += 2
+            else:
+                i += 1
+        
+        for key, value in pairs.items():
+            if not value or value == "N/A":
+                continue
+
+            if "well status" in key:
+                result["well_status"] = value
+            elif "well type" in key:
+                result["well_type"] = value
+            elif "closest city" in key:
+                result["closest_city"] = value
+        
+    return result
+
+
+# Web Scraping function
+def fetch_page(url):
+    # Get HTML content from well page with retries
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+
+            # Raise an error for bad status codes
+            response.raise_for_status()
+
+            # Otherwise, return content and url
+            return response.text, response.url
+        
+        # If there's an error and we haven't gone past max retries, log and retry after delay
+        except requests.RequestException as e:
+            log.warning("Request error (attempt %d): %s", attempt + 1, e)
+            if attempt < MAX_RETRIES:
+                time.sleep(2)
+    return None, None
+
+
+# Well scraping function
+def scrape_well(well, session, delay=DEFAULT_DELAY):
+    # Scrape the drillingedge page for a single well and return the additional info
+    id = well["id"]
+    api_number = well["api_number"]
+    well_name = well["well_name"]
+    county = well["county"]
+
+    if not api_number or api_number == "N/A":
+        log.warning("Skipping well with missing API number (ID: %d)", id)
+        return None
+
+    # Building URl and fetching page content
+    url = construct_url(api_number, well_name, county)
+    html = None
+    final_url = None
+
+    if url:
+        log.info("Fetching page for well ID %d at URL: %s", id, url)
+        html, final_url = fetch_page(url)
+        if not html:
+            log.warning("Failed to fetch page for well ID %d at URL: %s", id, url)
+            return None
+
+    # Parsing the HTMl content to extract desired info
+    data = parse_well_page(html, url=final_url or url) if html else None
+
+    return data
+
