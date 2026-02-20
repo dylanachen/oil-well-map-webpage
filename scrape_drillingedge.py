@@ -110,3 +110,33 @@ def update_well(conn, well_id, data):
     conn.commit()
 
 
+# URL Construction and scraping functions
+def make_url_compatible(text):
+    # Converting well names and county names to URL compatible formats
+    text = text.lower().strip()
+
+    # Replacing non-alnum chars with hyphens and combining multiple hyphens into one
+    text = re.sub(r"[^a-z0-9\-]+", "-", text)
+    text = re.sub(r"-{2,}", "-", text)
+
+    # Return without leading/trailing hyphens
+    return text.strip("-")
+
+def construct_url(api_number, well_name, county):
+    # Constructing the URL for drillingedge well pages
+    if not api_number:
+        return None
+    
+    county_portion = make_url_compatible(county) + "-county" if county and county != "N/A" else None
+    if not county_portion:
+        return None
+    
+    well_name_portion = make_url_compatible(well_name) if well_name and well_name != "N/A" else None
+    if not well_name_portion:
+        return None
+    
+    # Example URL format
+    # https://www.drillingedge.com/north-dakota/mckenzie-county/wells/yukon-5301-41-12t/33-053-03911
+    return f"{BASE_URL}/{STATE}/{county_portion}/wells/{well_name_portion}/{api_number}"
+
+
