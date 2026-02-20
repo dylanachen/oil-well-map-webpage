@@ -139,6 +139,15 @@ def construct_url(api_number, well_name, county):
     # https://www.drillingedge.com/north-dakota/mckenzie-county/wells/yukon-5301-41-12t/33-053-03911
     return f"{BASE_URL}/{STATE}/{county_portion}/wells/{well_name_portion}/{api_number}"
 
+# Helper function to parse "k" format numbers into plain numeric
+def parse_numeric_value(raw):
+    # Expand values like "1.5 k" to "1500"
+    raw = raw.strip()
+    match = re.fullmatch(r"([\d,.]+)\s*k", raw, re.IGNORECASE)
+    if match:
+        number = float(match.group(1).replace(",", ""))
+        return str(int(round(number * 1000)))
+    return raw
 
 # HTML Parsing function
 def parse_well_page(html, url=None):
@@ -163,9 +172,9 @@ def parse_well_page(html, url=None):
         value = dropcap.get_text(strip=True) if dropcap else ""
 
         if "barrels of oil produced" in text.lower():
-            result["barrels_oil_produced"] = value
+            result["barrels_oil_produced"] = parse_numeric_value(value)
         elif "mcf of gas produced" in text.lower():
-            result["mcf_gas_produced"] = value
+            result["mcf_gas_produced"] = parse_numeric_value(value)
         
     # Well Detail Table
         # <tr>
