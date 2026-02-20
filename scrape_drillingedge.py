@@ -11,7 +11,6 @@ import logging
 import requests
 from pathlib import Path
 from bs4 import BeautifulSoup
-from urllib.parse import quote, urljoin
 
 # Establishing constant vars and info
 HEADERS = {
@@ -28,9 +27,9 @@ NEW_COLUMNS = [
     ("well_status", "TEXT", "N/A"),
     ("well_type", "TEXT", "N/A"),
     ("closest_city", "TEXT", "N/A"),
-    ("barrels_oil_produced", "TEXT", "N/A"),
-    ("mcf_gas_produced", "TEXT", "N/A"),
-    ("drillingedge_url", "TEXT", None),
+    ("barrels_oil_produced", "INTEGER", 0),
+    ("mcf_gas_produced", "INTEGER", 0),
+    ("drillingedge_url", "TEXT", "N/A"),
 ]
 
 BASE_URL = "https://www.drillingedge.com"
@@ -100,8 +99,8 @@ def update_well(conn, well_id, data):
             data.get("well_status", "N/A"),
             data.get("well_type", "N/A"),
             data.get("closest_city", "N/A"),
-            data.get("barrels_oil_produced", "0"),
-            data.get("mcf_gas_produced", "0"),
+            data.get("barrels_oil_produced", 0),
+            data.get("mcf_gas_produced", 0),
             data.get("drillingedge_url", "N/A"),
             well_id
         )
@@ -157,8 +156,8 @@ def parse_well_page(html, url=None):
         "well_status": "N/A",
         "well_type": "N/A",
         "closest_city": "N/A",
-        "barrels_oil_produced": "0",
-        "mcf_gas_produced": "0",
+        "barrels_oil_produced": 0,
+        "mcf_gas_produced": 0,
         "drillingedge_url": url or "N/A"
     }
 
