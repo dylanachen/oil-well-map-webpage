@@ -208,11 +208,11 @@ def parse_well_page(html, url=None):
 
 
 # Web Scraping function
-def fetch_page(url):
+def fetch_page(url, session):
     # Get HTML content from well page with retries
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            response = session.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
             # Raise an error for bad status codes
             response.raise_for_status()
@@ -247,7 +247,7 @@ def scrape_well(well, session, delay=DEFAULT_DELAY):
 
     if url:
         log.info("Fetching page for well ID %d at URL: %s", id, url)
-        html, final_url = fetch_page(url)
+        html, final_url = fetch_page(url, session)
         if not html:
             log.warning("Failed to fetch page for well ID %d at URL: %s", id, url)
             return None
@@ -257,3 +257,97 @@ def scrape_well(well, session, delay=DEFAULT_DELAY):
 
     return data
 
+
+# Main function to run DB interactions, scraping, parsing, and updating well entries
+def main():
+    # Setting up command line arguments for running the script
+    parser = argparse.ArgumentParser(description="Scrape drillingedge.com for additional well info")
+    parser.add_argument("--db", type=str, default=DEFAULT_DB, help="SQLite database path")
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="Delay between requests in seconds (default: 1.0)")
+    parser.add_argument("--max-wells", type=int, default=None, help="Maximum number of wells to process (default: all)")
+    parser.add_argument("--rescrape", action="store_true", help="Rescrape wells even if they already have a drillingedge_url")
+    args = parser.parse_args()
+
+    # Check if DB path exists
+    db_path = Path(args.db).resolve()
+    if not db_path.exists():
+        log.error("Database file not found: %s", db_path)
+        log.error("Run pdf_extractor.py first to create the database.")
+        return 1
+
+    # Connect to DB and ensure new cols exist
+    conn = sqlite3.connect(str(db_path))
+    ensure_columns(conn)
+
+    # Reset drillingedge_url for all wells if --rescrape is specified, so they will be reprocessed
+    if args.rescrape:
+        conn.execute("UPDATE wells SET drillingedge_url = NULL")
+        conn.commit()
+    
+    # Get wells to process, limiting by max-wells
+    wells = get_wells(conn)
+    if args.max_wells:
+        wells = wells[:args.max_wells]
+
+    # If there are no wells to process, log and exit (tell to rescrape)
+    total = len(wells)
+    if total == 0:
+        log.info("No wells to scrape. All wells already have drillingedge_url.")
+        log.info("Use --rescrape to force reprocessing of all wells.")
+        conn.close()
+        return 0
+
+    log.info("Scraping %d wells from drillingedge.com", total)
+
+    # Loop through wells, scrape info, and update DB entries
+    session = requests.Session()
+    success = 0
+    failed = 0
+
+    try:
+        for i, well in enumerate(wells, 1):
+            log.info(
+                "[%d/%d] %s (API: %s)",
+                i,
+                total,
+                well.get("well_name", "Unknown"),
+                well.get("api_number", "N/A")
+            )
+
+            # Scrape the well page and extract info, then update the DB entry with the new info
+            data = scrape_well(
+                well, session, delay=args.delay
+            )
+
+            if data:
+                update_well(conn, well["id"], data)
+                success += 1
+                log.info(
+                    "Status: %s | Type: %s | City: %s | Oil: %s | Gas: %s",
+                    data["well_status"],
+                    data["well_type"],
+                    data["closest_city"],
+                    data["barrels_oil_produced"],
+                    data["mcf_gas_produced"]
+                )
+            else:
+                failed += 1
+            
+            # Delay requests
+            if i < total:
+                time.sleep(args.delay)
+    
+    # Allow user interruption, but log progress
+    except KeyboardInterrupt:
+        log.warning("Scraping interrupted by user. Progress has been saved.")
+    finally:
+        conn.close()
+    
+    log.info("")
+    log.info("Scraping complete. %d / %d successful, %d failed.", success, total, failed)
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
+        
