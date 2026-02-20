@@ -411,3 +411,99 @@ def clean_stimulation_data(conn, dry_run=False):
     
     return updates, field_changes
 
+
+# Summary printing function
+def print_summary(conn):
+    log.info("")
+    log.info("Database Cleaning Summary:")
+
+    total = conn.execute("SELECT COUNT(*) FROM wells").fetchone()[0]
+    with_coords = conn.execute("SELECT COUNT(*) FROM wells WHERE latitude != 0 AND longitude != 0").fetchone()[0]
+    with_api = conn.execute("SELECT COUNT(*) FROM wells WHERE api_number IS NOT NULL AND api_number != ''").fetchone()[0]
+    stim_rows = conn.execute("SELECT COUNT(*) FROM stimulation_data").fetchone()[0]
+
+    # Logging initial summary stats
+    log.info("Total wells: %d", total)
+    log.info("With valid coords: %d", with_coords)
+    log.info("With API number: %d", with_api)
+    log.info("Stimulation records: %d", stim_rows)
+
+    # Check for scraped data columns
+    cols = set(get_column_names(conn, "wells"))
+    if "well_status" in cols:
+        scraped = conn.execute("SELECT COUNT(*) FROM wells WHERE well_status != 'N/A'").fetchone()[0]
+        log.info("With scraped data: %d", scraped)
+    
+    # Missing value counts
+    log.info("")
+    log.info("Missing Values (wells)")
+    check_cols = [
+        "api_number",
+        "well_name",
+        "latitude",
+        "longitude",
+        "county",
+        "operator",
+        "well_status",
+        "closest_city",
+        "barrels_oil_produced",
+        "mcf_gas_produced"
+    ]
+
+    # For coordinate columns, counting NULL or 0 as missing
+    # For text columns, counting NULL or N/A as missing.
+    for col in check_cols:
+        if col not in cols:
+            continue
+        if col in ("latitude", "longitude"):
+            missing = conn.execute(f"SELECT COUNT(*) FROM wells WHERE {col} IS NULL OR {col} = 0").fetchone()[0]
+        else:
+            missing = conn.execute(f"SELECT COUNT(*) FROM wells WHERE {col} IS NULL OR {col} = 'N/A'").fetchone()[0]
+        log.info("  %-25s %d missing / %d total", col, missing, total)
+    
+
+# Main Function
+def main():
+    # Setting up command line arguments for running the script
+    parser = argparse.ArgumentParser(description="Preprocess and clean the oil wells database")
+    parser.add_argument("--db-path", default=DEFAULT_DB, help="SQLite database path")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing to the database",)
+    args = parser.parse_args()
+
+    # Check if DB path exists
+    db_path = Path(args.db).resolve()
+    if not db_path.exists():
+        log.error("Database file not found: %s", db_path)
+        log.error("Run pdf_extractor.py first to create the database and scrape_drillingedge.py to add additional info.")
+        return 1
+
+    # Connect to DB
+    conn = sqlite3.connect(str(db_path))
+
+    # Dry run mode logging
+    if args.dry_run:
+        log.info("[DRY RUN] No changes will be written.")
+        log.info("")
+
+    # Clean wells table
+    log.info("Cleaning wells table.")
+    well_updates, well_fields = clean_wells(conn, dry_run=args.dry_run)
+    log.info("Wells: %d rows updated, %d fields changed", well_updates, well_fields)
+
+    # Clean stimulation_data table
+    log.info("Cleaning stimulation_data table.")
+    stim_updates, stim_fields = clean_stimulation_data(conn, dry_run=args.dry_run)
+    log.info("Stimulations: %d rows updated, %d fields changed", stim_updates, stim_fields)
+
+    # Summary
+    print_summary(conn)
+
+    # Closing connection
+    conn.close()
+    log.info("")
+    log.info("Preprocessing complete.")
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
