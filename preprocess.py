@@ -60,6 +60,39 @@ def normalize_missing(value, field_type="text"):
 
     return value
 
+# Normalizing production columns
+def normalize_production(value):
+    # Converting shorthand number formats to ints
+    if not value or not isinstance(value, str):
+        return "N/A"
+    
+    value = value.strip()
+    if value.lower() in {"n/a", "na", "null", "none", "-", "--"}:
+        return "N/A"
+    
+    # Strip remaining surrounding text
+    m = re.search(r"([\d,.]+)\s*k\b", value, re.IGNORECASE)
+    if m:
+        try:
+            num = float(m.group(1).replace(",", ""))
+            return str(int(num * 1000))
+        except ValueError:
+            pass
+    
+    # Strip any remaining numbers if no "k" found
+    m = re.search(r"([\d,.]+)", value)
+    if m:
+        try:
+            num = float(m.group(1).replace(",", ""))
+            if num == int(num):
+                return str(int(num))
+            return str(num)
+        except ValueError:
+            pass
+
+    return "N/A"
+
+
 # Normalizing date formats to ISO
 def normalize_date(date):
     if not date or not isinstance(date, str):
@@ -161,4 +194,220 @@ def validate_longitude(lon):
     log.debug("Longitude out of North Dakota range: %s", lon)
     return 0
 
+
+# Separate Table Columns into respective cleaning methods
+WELLS_TEXT_COLS = [
+    "well_name",
+    "address",
+    "county",
+    "field",
+    "operator",
+    "permit_number",
+    "total_depth",
+    "formation",
+    "stimulation_notes",
+    "well_status",
+    "well_type",
+    "closest_city"
+]
+
+WELLS_DATE_COLS = [
+    "permit_date"
+]
+
+WELLS_NUMERIC_COLS = [
+    "latitude",
+    "longitude"
+]
+
+WELLS_PRODUCTION_COLS = [
+    "barrels_oil_produced",
+    "mcf_gas_produced"
+]
+
+# stimulation_data table
+STIM_TEXT_COLS = [
+    "stimulated_formation",
+    "volume_units",
+    "type_treatment",
+    "acid_pct",
+    "details"
+]
+
+STIM_DATE_COLS = [
+    "date_stimulated"
+]
+
+STIM_NUMERIC_COLS = [
+    "top_ft",
+    "bottom_ft",
+    "stimulation_stages",
+    "volume",
+    "lbs_proppant",
+    "max_treatment_pressure_psi",
+    "max_treatment_rate"
+]
+
+
+# Get existing column names function
+def get_column_names(conn, table_name):
+    cursor = conn.execute(f"PRAGMA table_info({table_name})")
+    return [row[1] for row in cursor.fetchall()]
+
+
+# Cleaning Functions
+# Clean wells table function
+def clean_wells(conn, dry_run=False):
+    existing_cols = set(get_column_names(conn, "wells"))
+    rows = conn.execute("SELECT * FROM wells").fetchall()
+    col_names = [desc[0] for desc in conn.execute("SELECT * FROM wells").description]
+
+    updates = 0
+    field_changes = 0
+
+    for row in rows:
+        data = dict(zip(col_names, row))
+        well_id = data["id"]
+        changed = {}
+
+        # Clean text columns: strip HTML, special chars, and normalize missing values
+        for col in WELLS_TEXT_COLS:
+            if col not in existing_cols:
+                continue
+            original = data.get(col)
+            cleaned = strip_html(original)
+            cleaned = strip_special_chars(cleaned)
+            cleaned = normalize_missing(cleaned, field_type="text")
+            if cleaned != original:
+                changed[col] = cleaned
+        
+        # Date columns: normalize date formats
+        for col in WELLS_DATE_COLS:
+            if col not in existing_cols:
+                continue
+            original = data.get(col)
+            cleaned = normalize_date(original)
+            if cleaned != original:
+                changed[col] = cleaned
+        
+        # API Columns: normalize API number formats
+        if "api_number" in existing_cols:
+            original = data.get("api_number")
+            cleaned = normalize_api_number(original)
+            if cleaned != original:
+                changed["api_number"] = cleaned
+        
+        # Coordinate columns: validate lat/lon values
+        if "latitude" in existing_cols:
+            original = data.get("latitude")
+            cleaned = validate_latitude(original)
+            if cleaned != original and original not in (None, 0):
+                changed["latitude"] = cleaned
+        if "longitude" in existing_cols:
+            original = data.get("longitude")
+            cleaned = validate_longitude(original)
+            if cleaned != original and original not in (None, 0):
+                changed["longitude"] = cleaned
+        
+        # Production columns: normalize numeric values and missing values
+        for col in WELLS_PRODUCTION_COLS:
+            if col not in existing_cols:
+                continue
+            original = data.get(col)
+            cleaned = normalize_production(original)
+            if cleaned != original:
+                changed[col] = cleaned
+            
+        # Updating changes
+        if changed:
+            updates += 1
+            field_changes += len(changed)
+
+            # Only log changes in dry run mode
+            if dry_run:
+                log.info(
+                    "[DRY RUN] Well %d (%s): would update %d fields: %s",
+                    well_id,
+                    data.get("well_name", "?"),
+                    len(changed),
+                    list(changed.keys())
+                )
+            # Otherwise, apply updates to the database
+            else:
+                set_clause = ", ".join(f"{col} = ?" for col in changed)
+                values = list(changed.values()) + [well_id]
+                conn.execute(f"UPDATE wells SET {set_clause} WHERE id = ?", values)
+
+    # Committing changes if not in dry run mode
+    if not dry_run:
+        conn.commit()
+
+    return updates, field_changes
+
+# Clean stimulation_data table function
+def clean_stimulation_data(conn, dry_run=False):
+    existing_cols = set(get_column_names(conn, "stimulation_data"))
+    rows = conn.execute("SELECT * FROM stimulation_data").fetchall()
+    col_names = [desc[0] for desc in conn.execute("SELECT * FROM stimulation_data").description]
+
+    updates = 0
+    field_changes = 0
+
+    for row in rows:
+        data = dict(zip(col_names, row))
+        row_id = data["id"]
+        changed = {}
+
+        # Clean text columns: strip HTML, special chars, and normalize missing values
+        for col in STIM_TEXT_COLS:
+            if col not in existing_cols:
+                continue
+            original = data.get(col)
+            cleaned = strip_html(original)
+            cleaned = strip_special_chars(cleaned)
+            cleaned = normalize_missing(cleaned, field_type="text")
+            if cleaned != original:
+                changed[col] = cleaned
+        
+        # Date columns: normalize date formats
+        for col in STIM_DATE_COLS:
+            if col not in existing_cols:
+                continue
+            original = data.get(col)
+            cleaned = normalize_date(original)
+            if cleaned != original:
+                changed[col] = cleaned
+
+        # Numeric columns: normalize missing values and ensure numeric types
+        for col in STIM_NUMERIC_COLS:
+            if col not in existing_cols:
+                continue
+            original = data.get(col)
+            if original is None:
+                changed[col] = 0
+        
+        # Updating changes
+        if changed:
+            updates += 1
+            field_changes += len(changed)
+
+            # Only log changes in dry run mode
+            if dry_run:
+                log.info(
+                    "[DRY RUN] Stim row %d: would update %d fields: %s",
+                    row_id,
+                    len(changed),
+                    list(changed.keys()),
+                )
+            # Otherwise, apply updates to the database
+            else:
+                set_clause = ", ".join(f"{k} = ?" for k in changed)
+                values = list(changed.values()) + [row_id]
+                conn.execute(f"UPDATE stimulation_data SET {set_clause} WHERE id = ?", values)
+    
+    # Committing changes if not in dry run mode
+    if not dry_run:
+        conn.commit()
+    
+    return updates, field_changes
 
