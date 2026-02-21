@@ -466,7 +466,7 @@ def print_summary(conn):
 def main():
     # Setting up command line arguments for running the script
     parser = argparse.ArgumentParser(description="Preprocess and clean the oil wells database")
-    parser.add_argument("--db-path", default=DEFAULT_DB, help="SQLite database path")
+    parser.add_argument("--db", default=DEFAULT_DB, help="SQLite database path")
     parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing to the database",)
     args = parser.parse_args()
 
