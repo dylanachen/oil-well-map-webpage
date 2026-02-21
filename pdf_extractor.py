@@ -25,6 +25,16 @@ PDF_DIR = "pdfs"
 DB_PATH = "oil_wells.db"
 
 
+def _coord_bounds():
+    # read coord bounds from env (unset = full valid range)
+    lat_min = float(os.environ.get("COORD_LAT_MIN", "-90"))
+    lat_max = float(os.environ.get("COORD_LAT_MAX", "90"))
+    lon_abs_min = float(os.environ.get("COORD_LON_ABS_MIN", "0"))
+    lon_abs_max = float(os.environ.get("COORD_LON_ABS_MAX", "180"))
+    lon_deg_min = float(os.environ.get("COORD_LON_DEG_MIN", "0"))
+    return lat_min, lat_max, lon_abs_min, lon_abs_max, lon_deg_min
+
+
 def normalize_dms(text):
     # unify degree/min/sec symbols so regex can match
     text = re.sub(r'[\u00BA\u02DA\u00B7\u02D9]', '\u00B0', text)
@@ -35,6 +45,7 @@ def normalize_dms(text):
 
 
 def dms_to_decimal(dms_str):
+    # parse dms to decimal degrees, negate for W/S
     if not dms_str or not dms_str.strip():
         return None
     s = re.sub(r'[\u00B0\u2032\u2033\u2019]', ' ', dms_str).replace('"', ' ').strip()
@@ -54,6 +65,7 @@ def dms_to_decimal(dms_str):
 
 
 def parse_num(s):
+    # first number in string, strip commas and spaces
     if not s:
         return None
     cleaned = re.sub(r'[,\s]', '', s.strip())
@@ -67,6 +79,7 @@ def parse_num(s):
 
 
 def clean_value(val):
+    # missing -> N/A, strip html and control chars
     if val is None or (isinstance(val, str) and not val.strip()):
         return 'N/A'
     if isinstance(val, str):
@@ -77,6 +90,7 @@ def clean_value(val):
 
 
 def normalize_date_to_iso(date_str):
+    # try MM/DD and DD/MM, 2-digit year via env cutoff
     if not date_str or not isinstance(date_str, str) or not date_str.strip():
         return None
     s = re.sub(r'[^\d/\-]', '/', date_str.strip())
@@ -101,6 +115,7 @@ def normalize_date_to_iso(date_str):
 
 
 def _apply_ocr_fixes(val, env_key, default):
+    # apply typo:fix pairs from env
     if not val:
         return val
     s = os.environ.get(env_key, default)
@@ -117,12 +132,14 @@ def _apply_ocr_fixes(val, env_key, default):
 
 
 def _is_truncated_well_name(name):
+    # name ending in digit-dash (truncated line)
     if not name or len(name) < 4:
         return False
     return bool(re.search(r'\d\s*[-‐–—]\s*$', name))
 
 
 def _is_rejected_well_name(name):
+    # truncated, or compass token, or in reject list
     if not name:
         return False
     if _is_truncated_well_name(name):
@@ -144,8 +161,58 @@ def _is_rejected_well_name(name):
     return False
 
 
+def _is_garbled_well_name(name):
+    # long string with many punctuation runs (ocr noise)
+    if not name or len(name) < 20:
+        return False
+    if len(re.findall(r'[~=.:;]\s*', name)) >= 3:
+        return True
+    if re.search(r'[~=]\s*[A-Z]?\s*[~=]', name):
+        return True
+    return False
+
+
+def _sanitize_garbled_well_name(name):
+    # merge single-char runs, strip junk suffixes
+    if not name:
+        return None
+    s = re.sub(r'[~=.:;]+', ' ', name)
+    s = re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r'[^\w\s\-&\'#]', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    max_single_run = 6
+    parts = s.split()
+    merged = []
+    i = 0
+    while i < len(parts):
+        if len(parts[i]) == 1 and (parts[i].isalpha() or parts[i].isdigit()):
+            run = []
+            while i < len(parts) and len(parts[i]) == 1 and (parts[i].isalpha() or parts[i].isdigit()) and len(run) < max_single_run:
+                run.append(parts[i])
+                i += 1
+            word = ''.join(run)
+            if word.isalpha() and len(word) > 1:
+                word = word.capitalize()
+            merged.append(word)
+        else:
+            merged.append(parts[i])
+            i += 1
+    out = []
+    for p in merged:
+        if out and len(p) == 2 and p.isalpha() and p.isupper() and out[-1].isalpha() and out[-1][-1].islower():
+            out[-1] = out[-1] + p.lower()
+        else:
+            out.append(p)
+    s = ' '.join(out)
+    for pat in [r'\s+Wiltiams\s*.*$', r'\s+Williams\s*$', r'\s+McKenzie\s*$', r'\s+LOT\d*\s*$', r'\s+Sec\s+\d', r'\s+\d{2,3}\s+\d{2,3}\s+\d+\s*$', r'\s+_{2,}.*$']:
+        s = re.sub(pat, '', s, flags=re.IGNORECASE).strip()
+    if 3 < len(s) < 120 and not _is_rejected_well_name(s):
+        return s
+    return None
+
+
 def extract_api(text):
-    # prefer survey/permit block so we don't pick up API from commingling
+    # search survey/permit block first to avoid commingling API
     survey = re.search(
         r'(?:Directional\s+Survey|Survey\s+(?:Report|Certification)|'
         r'Well\s+Completion|APPLICATION\s+FOR\s+PERMIT)[^\n]*((?:.*\n){0,20})',
@@ -155,12 +222,12 @@ def extract_api(text):
     regions.append(text)
 
     patterns = [
-        r'API\s*[#:\s]*(\d{2})-(\d{3})-(\d{5})',
+        r'API\s*[#:\s]*(\d{2})-(\d{3})-(\d{5})(?:-\d{2}-\d{2})?',
         r'API\s*[:#]?\s*(\d{2})\s*[-]\s*(\d{3})\s*[-]\s*(\d{5})',
         r'API\s*[:#]?\s*(\d{2})\s*[-]?\s*(\d{3})\s*[-]?\s*(\d{5})',
+        r'API\s+(?:No\.?|Number|JOB\s*#?)\s*[:\s]*(\d{2})-(\d{3})-(\d{5})',
+        r'API\s+(?:No\.?|Number|JOB\s*#?)\s*[:\s]*(\d{2})\s+(\d{3})\s+(\d{5})\b',
         r'API\s*[:#]?\s*(\d{10,11})\b',
-        r'API\s+(?:No\.?|Number)\s*[:\s]*(\d{2})-(\d{3})-(\d{5})',
-        r'API\s+(?:No\.?|Number)\s*[:\s]*(\d{2})\s+(\d{3})\s+(\d{5})\b',
     ]
     for region in regions:
         for p in patterns:
@@ -171,13 +238,13 @@ def extract_api(text):
                 raw = m.group(1)
                 if len(raw) == 10:
                     return f"{raw[:2]}-{raw[2:5]}-{raw[5:10]}"
-                if len(raw) == 11:
-                    return f"{raw[:2]}-{raw[2:5]}-{raw[5:11]}"
+                if len(raw) == 11 and raw[:2] == '33':
+                    return f"33-{raw[3:6]}-{raw[6:11]}"
                 if len(raw) >= 10:
                     return f"{raw[:2]}-{raw[2:5]}-{raw[5:10]}"
                 return raw
 
-    # Space-separated API (e.g. 33 053 06755)
+    # space-separated API e.g. 33 053 06755
     m = re.search(r'\b(33)\s+(\d{3})\s+(\d{5})\b', text)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
@@ -189,11 +256,13 @@ def extract_api(text):
 
 
 def extract_well_file_from_filename(filename):
+    # W12345.pdf -> 12345
     m = re.match(r'W(\d+)\.pdf', filename, re.IGNORECASE)
     return m.group(1) if m else None
 
 
 def extract_well_file_from_text(text):
+    # well file # or file # from text
     m = re.search(r'Well\s*File\s*(?:#|Number)?[:\s]*(\d{4,6})', text, re.IGNORECASE)
     if m:
         return m.group(1)
@@ -201,14 +270,26 @@ def extract_well_file_from_text(text):
     return m.group(1) if m else None
 
 
+def _nd_lat_ok(v):
+    return 45.9 <= v <= 49.1 if v is not None else False
+
+
+def _nd_lon_ok(v):
+    return 96.5 <= abs(v) <= 104.1 if v is not None else False
+
+
 def extract_latitude(text):
     norm = normalize_dms(text)
+    lat_min, lat_max, _, _, _ = _coord_bounds()
+    candidates = []
 
     dms_pats = [
         r'Well\s+Coordinates[^(]*\(\s*(\d+)\s*[°]\s*(\d+)\s*[\']?\s*([\d.]+)\s*["]?\s*N\s*[,\)]',
         r'Latitude\s+of\s+Well\s+Head[^\d]*(\d+)\s*[°]\s*(\d+)\s*[\']?\s*([\d.]+)\s*["]?',
+        r'(?:Site\s+Position|Well\s+Position)[^\d]*Latitude\s*[:\s]\s*(\d+)\s*[°]\s*(\d+)\s*[\']?\s*([\d.]+)\s*["]?\s*N',
         r'Lat(?:itude|ittude)?\s*[:\s]\s*(\d{2})\s*[°]\s*(\d{1,2})\s*[\']?\s*([\d.]+)\s*["]?\s*N',
         r'(\d{2})\s*[°]\s*(\d{1,2})\s*[\']\s*([\d.]+)\s*["]?\s*N\b',
+        r'Lat(?:itude|ittude)?\s*[:\s]\s*(\d{2})\s+(\d{1,2})\s+([\d.]+)\s*N\b',
     ]
     for p in dms_pats:
         m = re.search(p, norm, re.IGNORECASE)
@@ -216,141 +297,116 @@ def extract_latitude(text):
             dms = f"{m.group(1)}° {m.group(2)}' {m.group(3)}\" N"
             dec = dms_to_decimal(dms)
             if dec is not None and -90 <= dec <= 90:
-                return round(dec, 6)
+                candidates.append(round(dec, 6))
 
-    m = re.search(
+    for pat in [
         r'(?:Survey\s+)?Lat(?:itude|ittude)?\s*[:\s]\s*(\d{2}\.\d{2,6})\s*(?:deg\.?\s*[NS]?)?',
-        norm, re.IGNORECASE,
-    )
-    if m:
-        try:
-            v = float(m.group(1))
-            if -90 <= v <= 90:
-                return round(v, 6)
-        except ValueError:
-            pass
-
-    m = re.search(r'\bLat(?:itude|ittude)?\b[^\d\n]{0,20}(\d{2}\.\d{2,6})', norm, re.IGNORECASE)
-    if m:
-        try:
-            v = float(m.group(1))
-            if -90 <= v <= 90:
-                return round(v, 6)
-        except ValueError:
-            pass
-
-    # Latitude 48.xxxxx or Lat: 48.xxxxx (flexible spacing)
-    m = re.search(r'Lat(?:itude|ittude)?\s*[:\s]+\s*(\d{2}\.\d{2,6})\s*[°N]?', norm, re.IGNORECASE)
-    if m:
-        try:
-            v = float(m.group(1))
-            if 46 <= v <= 49 and -90 <= v <= 90:
-                return round(v, 6)
-        except ValueError:
-            pass
+        r'\bLat(?:itude|ittude)?\b[^\d\n]{0,20}(\d{2}\.\d{2,6})',
+        r'Lat(?:itude|ittude)?\s*[:\s]+\s*(\d{2}\.\d{2,6})\s*[°N]?',
+    ]:
+        for m in re.finditer(pat, norm, re.IGNORECASE):
+            try:
+                v = float(m.group(1))
+                if -90 <= v <= 90:
+                    candidates.append(round(v, 6))
+            except ValueError:
+                pass
 
     survey = re.search(
-        r'(?:Well\s+Coord|Survey|APPLICATION\s+FOR\s+PERMIT|Well\s+Completion)[^\d]{0,600}(4[6-9]\.\d{2,6})',
+        r'(?:Well\s+Coord|Survey|APPLICATION\s+FOR\s+PERMIT|Well\s+Completion)[^\d]{0,600}(\d{1,2}\.\d{2,6})',
         text, re.IGNORECASE | re.DOTALL,
     )
     if survey:
         try:
             v = float(survey.group(1))
-            if 46 <= v <= 49:
-                return round(v, 6)
+            if lat_min <= v <= lat_max:
+                candidates.append(round(v, 6))
         except ValueError:
             pass
-    return None
+
+    for v in candidates:
+        if _nd_lat_ok(v):
+            return v
+    return round(candidates[0], 6) if candidates else None
 
 
 def extract_longitude(text):
     norm = normalize_dms(text)
+    _, _, lon_abs_min, lon_abs_max, lon_deg_min = _coord_bounds()
+    candidates = []
 
     dms_pats = [
         r'Well\s+Coordinates[^)]*N\s*[,\)]\s*(\d+)\s*[°]\s*(\d+)\s*[\']?\s*([\d.]+)\s*["]?\s*W',
         r'Longitude\s+of\s+Well\s+Head[^\d]*(-?\d+)\s*[°]\s*(\d+)\s*[\']?\s*([\d.]+)\s*["]?\s*W?',
-        r'Long(?:itude)?\s*[:\s]\s*(-?\d{2,3})\s*[°]\s*(\d{1,2})\s*[\']?\s*([\d.]+)\s*["]?\s*W',
+        r'(?:Site\s+Position|Well\s+Position)[^\d]*Longitude\s*[:\s]\s*(\d+)\s*[°]\s*(\d+)\s*[\']?\s*([\d.]+)\s*["]?\s*W',
+        r'Long(?:itude)?\s*[:\s]\s*(\d{2,3})\s*[°]\s*(\d{1,2})\s*[\']?\s*([\d.]+)\s*["]?\s*W',
         r'Long(?:itude)?\s*[:\s]\s*(-?\d{2,3})\s*["\u201C]\s*(\d{1,2})\s*[\']?\s*([\d.]+)\s*["]?\s*W',
         r'(\d{2,3})\s*[°]\s*(\d{1,2})\s*[\']\s*([\d.]+)\s*["]?\s*W\b',
+        r'Long(?:itude)?\s*[:\s]\s*(\d{2,3})\s+(\d{1,2})\s+([\d.]+)\s*W\b',
     ]
     for p in dms_pats:
         m = re.search(p, norm, re.IGNORECASE)
         if m:
-            deg = int(m.group(1).lstrip('-'))
-            if deg < 90:  # probably lat (ND is 100+ W)
+            deg = int(str(m.group(1)).lstrip('-'))
+            if deg < lon_deg_min:
                 continue
             dms = f"-{deg}° {m.group(2)}' {m.group(3)}\" W"
             dec = dms_to_decimal(dms)
             if dec is not None and dec > 0:
                 dec = -dec
             if dec is not None and -180 <= dec <= 180:
-                return round(dec, 6)
+                candidates.append(round(dec, 6))
 
-    m = re.search(
+    for pat in [
         r'(?:Survey\s+)?\bLong(?:itude)?\b\s*[:\s]\s*(-?\d{2,3}\.\d{2,6})\s*(?:deg\.?\s*[WE]?)?',
-        norm, re.IGNORECASE,
-    )
-    if m:
-        try:
-            v = float(m.group(1))
-            if v > 0:
-                v = -v
-            if -180 <= v <= 180:
-                return round(v, 6)
-        except ValueError:
-            pass
-
-    m = re.search(r'\bLong(?:itude)?\b[^\d\n]{0,20}(-?\d{2,3}\.\d{2,6})', norm, re.IGNORECASE)
-    if m:
-        try:
-            v = float(m.group(1))
-            if v > 0:
-                v = -v
-            if -180 <= v <= 180:
-                return round(v, 6)
-        except ValueError:
-            pass
-
-    # Longitude 103.xxxxx or Long: 103.xxxxx (flexible spacing)
-    m = re.search(r'Long(?:itude)?\s*[:\s]+\s*(-?\d{2,3}\.\d{2,6})\s*[°W]?', norm, re.IGNORECASE)
-    if m:
-        try:
-            v = float(m.group(1))
-            if v > 0:
-                v = -v
-            if 102 <= abs(v) <= 105 and -180 <= v <= 180:
-                return round(v, 6)
-        except ValueError:
-            pass
+        r'\bLong(?:itude)?\b[^\d\n]{0,20}(-?\d{2,3}\.\d{2,6})',
+        r'Long(?:itude)?\s*[:\s]+\s*(-?\d{2,3}\.\d{2,6})\s*[°W]?',
+    ]:
+        for m in re.finditer(pat, norm, re.IGNORECASE):
+            try:
+                v = float(m.group(1))
+                if v > 0:
+                    v = -v
+                if -180 <= v <= 180:
+                    candidates.append(round(v, 6))
+            except ValueError:
+                pass
 
     survey = re.search(
-        r'(?:Well\s+Coord|Survey|APPLICATION\s+FOR\s+PERMIT|Well\s+Completion)[^\d]{0,800}(10[2-4]\.\d{2,6})',
+        r'(?:Well\s+Coord|Survey|APPLICATION\s+FOR\s+PERMIT|Well\s+Completion)[^\d]{0,800}(\d{2,3}\.\d{2,6})',
         text, re.IGNORECASE | re.DOTALL,
     )
     if survey:
         try:
             v = float(survey.group(1))
-            if 102 <= v <= 105:
-                return round(-v, 6)
+            if lon_abs_min <= v <= lon_abs_max:
+                candidates.append(round(-v, 6))
         except ValueError:
             pass
-    return None
+
+    for v in candidates:
+        if _nd_lon_ok(v):
+            return v
+    return round(candidates[0], 6) if candidates else None
 
 
 def extract_well_name(text, well_file_no=None):
+    # by file number, then same-line label, then next line
     if well_file_no:
         m = re.search(
             rf'(?:Well\s+)?File\s*#?\s*:?\s*{re.escape(well_file_no)}\s+'
-            r'([A-Za-z][A-Za-z0-9\s\-\.&\']+?)'
+            r'([A-Za-z][A-Za-z0-9\s\-\.&\'~=.:;#]+?)'
             r'(?:\s+(?:LOT\d?|[SN][EW][SN][EW]|Sec\b|API\b|\d+\s*F\s*[NSEW]\s*L|\d+-\d+[NSEW]))',
             text, re.IGNORECASE,
         )
         if m:
             name = re.sub(r'\s+', ' ', m.group(1)).strip()
-            if 3 < len(name) < 200 and not _is_rejected_well_name(name):
+            if _is_garbled_well_name(name):
+                name = _sanitize_garbled_well_name(name)
+            if name and 3 < len(name) < 200 and not _is_rejected_well_name(name) and '__' not in name and 'wiltiams' not in name.lower():
                 return name
 
-    # Prefer "Well Name & No." (same line) before "Well Name and Number" (next line) - avoids schematic truncation
+    # same-line label preferred over next line (avoids truncation)
     m = re.search(r'Well\s+Name\s+&?\s*No\.?\s*[:\s]+([A-Za-z][A-Za-z0-9\s\-\.&]+?)(?:\n|$)', text, re.IGNORECASE)
     if m:
         name = re.sub(r'\s+', ' ', m.group(1)).strip()
@@ -377,7 +433,9 @@ def extract_well_name(text, well_file_no=None):
         ]:
             name = re.sub(pat, '', name, flags=re.IGNORECASE).strip()
         name = re.sub(r'\s+', ' ', name)
-        if 3 < len(name) < 200 and not _is_rejected_well_name(name):
+        if _is_garbled_well_name(name):
+            name = _sanitize_garbled_well_name(name)
+        if name and 3 < len(name) < 200 and not _is_rejected_well_name(name):
             return name
 
     m = re.search(r'Well\s+Name\s*:\s*([A-Za-z][A-Za-z0-9\s\-\.&]+?)(?:\n|$)', text, re.IGNORECASE)
@@ -386,15 +444,20 @@ def extract_well_name(text, well_file_no=None):
         if 3 < len(name) < 200 and not _is_rejected_well_name(name):
             return name
 
+    for m in re.finditer(r'Well\s+Name\s*:\s*([A-Za-z][A-Za-z0-9\s\-\.&\']+?)(?:\s*API\s*#?|$|\n)', text, re.IGNORECASE):
+        name = re.sub(r'\s+', ' ', m.group(1)).strip()
+        if 3 < len(name) < 120 and not _is_rejected_well_name(name) and not _is_garbled_well_name(name):
+            return name
     return None
 
 
 def _normalize_address_spacing(addr):
+    # fix P.O., comma spacing, Suite/Box etc
     if not addr or not isinstance(addr, str):
         return addr
     addr = addr.strip()
     addr = re.sub(r'^\s*co\s+', '', addr, flags=re.I)
-    addr = re.sub(r'\s*,\s*', ', ', addr)  # normalize comma spacing: " , " or ", " -> ", "
+    addr = re.sub(r'\s*,\s*', ', ', addr)
     addr = re.sub(r'P\s*\.\s*0\s*\.', 'P.O.', addr)
     addr = re.sub(r',\s*([A-Z])', r', \1', addr)
     addr = re.sub(r'(\d)([A-Z][a-z]+)', r'\1 \2', addr)
@@ -408,7 +471,7 @@ def _normalize_address_spacing(addr):
 
 
 def extract_address(text):
-    # Truncate at "Name of Surface Owner" to avoid grabbing adjacent form fields
+    # truncate at surface owner so address does not include next field
     for sep in (r'Name\s+of\s+Surface\s+Owner', r'Surface\s+Owner\s+or\s+Tenant'):
         if re.search(sep, text, re.IGNORECASE):
             text = re.split(sep, text, maxsplit=1, flags=re.IGNORECASE)[0]
@@ -425,7 +488,7 @@ def extract_address(text):
 
 
 def extract_county(text):
-    # form labels that appear next to County but aren't county names
+    # tokens that look like county but are form labels
     non_county = {'range', 'township', 'section', 'field', 'pool', 'state',
                   'code', 'baker', 'bakken', 'forks', 'address', 'city'}
 
@@ -461,7 +524,7 @@ def extract_county(text):
 
 
 def extract_field(text):
-    # avoid returning pool/formation/county as field
+    # exclude pool/county/bad from field name
     bad = {'county', 'pool', 'field', 'address', 'city', 'state', 'name',
            'range', 'township', 'section', 'wildcat', 'development', 'extension'}
 
@@ -523,8 +586,8 @@ def extract_field(text):
 
 
 def clean_operator(cand):
+    # strip trailing checkboxes and junk
     cand = re.sub(r'\s+', ' ', cand).strip()
-    # strip checkboxes and trailing junk that got merged in
     cand = re.sub(
         r'\s+(?:TIGHT|YES|NO\b|HOLE|CONFIDENTIAL|Company\s+man|Well[\-\s]*site|Geologist).*$',
         '', cand, flags=re.IGNORECASE,
@@ -538,6 +601,7 @@ def clean_operator(cand):
 
 
 def extract_operator(text):
+    # operator : or next line, stop at phone/well name
     m = re.search(
         r'Operator\s*:\s*([A-Za-z][A-Za-z0-9\s\-\.&,\'()]+?)(?:\s+Well\s+Name|\s+Enseco|\n)',
         text, re.IGNORECASE,
@@ -577,11 +641,13 @@ def extract_operator(text):
 
 
 def extract_permit_number(text):
+    # permit # or number from text
     m = re.search(r'Permit\s*(?:#|Number)?[:\s]*(\d[\d\-A-Za-z]*)', text, re.IGNORECASE)
     return m.group(1).strip() if m else None
 
 
 def extract_permit_date(text):
+    # permit date or date of permit
     for pat in [r'Permit\s*Date', r'Date\s+of\s+Permit']:
         m = re.search(pat + r'[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', text, re.IGNORECASE)
         if m:
@@ -590,27 +656,38 @@ def extract_permit_date(text):
 
 
 def extract_total_depth(text):
-    m = re.search(r'Total\s*Depth[^\d]*(\d[\d,]*\.?\d*)\s*(ft|feet)?', text, re.IGNORECASE)
-    if m:
-        return m.group(1).replace(",", "") + " ft"
-    m = re.search(r'Depth\s*[:\s]*(\d[\d,]*\.?\d*)\s*(ft|feet)\b', text, re.IGNORECASE)
-    if m:
-        return m.group(1).replace(",", "") + " ft"
+    # total depth drilled or well depth, min from env
+    min_depth = float(os.environ.get("MIN_TOTAL_DEPTH_FT", "0") or 0)
+    for pat in [
+        r'Total\s+Depth\s+Drilled\s*[:\s]\s*(\d[\d,]*\.?\d*)\s*[\'′]',
+        r'Total\s+(?:Well\s+)?Depth[^\d]*(\d[\d,]*\.?\d*)\s*(ft|feet)?',
+        r'Total\s*Depth[^\d]*(\d[\d,]*\.?\d*)\s*(ft|feet)?',
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            raw = m.group(1).replace(",", "")
+            try:
+                if float(raw) >= min_depth:
+                    return raw + " ft"
+            except ValueError:
+                pass
     return None
 
 
 def extract_formation(text):
-    m = re.search(r'Formation\s*[:\s]*([A-Za-z0-9\s\-\.]+?)(?=\n|$|\s{2})', text, re.IGNORECASE)
+    # formation name, max len from env, reject legal words
+    m = re.search(r'\bFormation\s*[:\s]*([A-Za-z0-9\s\-\.]+?)(?=\n|$|\s{2,})', text, re.IGNORECASE)
     if m:
-        cand = m.group(1).strip()
-        if len(cand) >= 1:
-            return re.sub(r'\s+', ' ', cand)
+        cand = re.sub(r'\s+', ' ', m.group(1).strip())
+        max_len = int(os.environ.get("FORMATION_MAX_LEN", "0") or 0)
+        if cand and (max_len <= 0 or len(cand) <= max_len) and not re.search(r'\b(Director|contact|undersigned|required|please|would allow|information|the contract)\b', cand, re.I):
+            return cand
     return None
 
 
 def extract_stimulations(text):
+    # split on date stimulated (OCR variants), parse blocks
     rows = []
-    # OCR can give "Date St mulated", "Slimulated", "Formalion"; allow optional spaces
     parts = re.split(
         r'(?:Date\s+S(?:[tl]i?mu\s*l?\s*a?\s*t?\s*e?\s*d|\s*t\s*i?\s*m\s*u\s*l\s*a\s*t\s*e\s*d)|'
         r'Stimulation\s+Date|Date\s+of\s+Stimulation)',
@@ -670,13 +747,13 @@ def extract_stimulations(text):
             idx = data_line.lower().find(formation.lower())
             if idx >= 0:
                 after = data_line[idx + len(formation):]
-        # OCR fix: ll->11, l->1 in numbers
+        # ocr fix ll/1 in numbers
         after = re.sub(r'(?<!\w)ll(\d{2,})', r'11\1', after)
         after = re.sub(r'(?<!\w)[lI](\d{3,})', r'1\1', after)
         nums = [parse_num(n) for n in re.findall(r'[\d,]+\.?\d*', after)]
         nums = [v for v in nums if v is not None]
 
-        # Skip leading year or small junk (e.g. 2023, 1, 2 from date) so they don't become top_ft
+        # skip year/small so not top_ft
         i = 0
         while i < len(nums) and (nums[i] < 100 or 1990 <= nums[i] <= 2100):
             i += 1
@@ -784,7 +861,7 @@ def extract_stimulations(text):
                     detail_lines.append(l)
         details = '; '.join(detail_lines) if detail_lines else None
 
-        if not any([lbs_proppant, volume, formation]):  # skip empty blocks
+        if not any([lbs_proppant, volume, formation]):
             continue
 
         date_val = (date_stim or '').strip() or None
@@ -806,7 +883,7 @@ def extract_stimulations(text):
             'details': details,
         })
 
-    # Fallback: data line can appear before "Date Stimulated" header (e.g. table layout)
+    # fallback when data line appears before header (table layout)
     existing_lbs = {r['lbs_proppant'] for r in rows if r.get('lbs_proppant')}
     for m in re.finditer(
         r'(Sand\s*Frac|Acid\s*Frac|Frac|Acid)\s+([\d,\s]+)',
@@ -829,7 +906,7 @@ def extract_stimulations(text):
     return rows
 
 
-# table header text -> our well dict keys
+# table header label -> well dict key
 TABLE_LABELS = {
     "api": "api_number", "api number": "api_number", "api #": "api_number",
     "well name": "well_name",
@@ -846,7 +923,7 @@ TABLE_LABELS = {
 
 
 def extract_from_tables(tables):
-    # 2-col tables = key/val; others we just dump as text lines
+    # two-col as key/val, else dump rows as text
     text_lines = []
     kv = {}
 
@@ -874,7 +951,7 @@ def extract_from_tables(tables):
 
 
 def extract_from_pdf(pdf_path, max_pages=None):
-    """Extract well info and stimulation data from a PDF. If max_pages is None, all pages are parsed."""
+    # extract all fields, backfill from tables when missed
     well_file = extract_well_file_from_filename(os.path.basename(pdf_path))
     result = {
         'api_number': None, 'well_file_no': well_file, 'well_name': None,
@@ -908,12 +985,18 @@ def extract_from_pdf(pdf_path, max_pages=None):
     if all_table_lines:
         full_text += '\n' + '\n'.join(all_table_lines)
 
-    if len(full_text.strip()) < int(os.environ.get("OCR_FALLBACK_MIN_CHARS", "500")) and os.environ.get("USE_OCR_FALLBACK") and pytesseract and convert_from_path:
-        try:
-            images = convert_from_path(pdf_path, first_page=1, last_page=int(os.environ.get("OCR_FALLBACK_MAX_PAGES", "5")), dpi=200)
-            full_text = "\n".join(pytesseract.image_to_string(img) for img in images) + "\n" + full_text
-        except Exception:
-            pass
+    # optional OCR when text short (env controls when)
+    if os.environ.get("USE_OCR_FALLBACK") and pytesseract and convert_from_path:
+        min_chars_s = os.environ.get("OCR_FALLBACK_MIN_CHARS", "").strip()
+        run_ocr = not min_chars_s or len(full_text.strip()) < int(min_chars_s)
+        if run_ocr:
+            try:
+                max_pages_s = os.environ.get("OCR_FALLBACK_MAX_PAGES", "").strip()
+                last_page = int(max_pages_s) if max_pages_s else None
+                images = convert_from_path(pdf_path, first_page=1, last_page=last_page, dpi=200)
+                full_text = "\n".join(pytesseract.image_to_string(img) for img in images) + "\n" + full_text
+            except Exception:
+                pass
 
     if not full_text.strip():
         return result
@@ -950,7 +1033,7 @@ def extract_from_pdf(pdf_path, max_pages=None):
                 parts.append(', '.join(bits))
         result['stimulation_notes'] = '; '.join(parts) if parts else None
 
-    # backfill from tables when text extraction missed it
+    # backfill from table kv when extract missed
     for key in ('api_number', 'well_name', 'address', 'county', 'field', 'operator',
                 'permit_number', 'permit_date', 'total_depth', 'formation'):
         if all_kv.get(key) and not result[key]:
@@ -964,7 +1047,7 @@ def extract_from_pdf(pdf_path, max_pages=None):
                 val = _normalize_address_spacing(val)
             result[key] = val
 
-    # fallback lat/lon from tables
+    # fallback lat/lon from table
     if all_kv.get('latitude_raw') and result['latitude'] is None:
         try:
             raw = str(all_kv['latitude_raw']).strip()
@@ -995,6 +1078,7 @@ def extract_from_pdf(pdf_path, max_pages=None):
 
 
 def setup_db(conn):
+    # create wells and stimulation_data tables
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS wells (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1054,6 +1138,7 @@ STIM_COLS = (
 
 
 def main():
+    # discover PDFs, extract each, upsert wells and stim rows
     parser = argparse.ArgumentParser()
     parser.add_argument('--pdf-dir', default=PDF_DIR)
     parser.add_argument('--db-path', default=DB_PATH)
@@ -1083,7 +1168,7 @@ def main():
     setup_db(conn)
     cur = conn.cursor()
 
-    # these get N/A when missing
+    # optional text fields -> N/A when missing
     na_fields = [
         'well_name', 'address', 'county', 'field', 'operator',
         'permit_number', 'permit_date', 'total_depth', 'formation', 'stimulation_notes',
@@ -1107,7 +1192,8 @@ def main():
                         pool_words.add(w.lower())
             for pm in re.finditer(r'\bPool\s{2,}([A-Za-z]{3,})', raw, re.IGNORECASE):
                 pool_words.add(pm.group(1).strip().lower())
-            if data['field'].lower().split()[0] in pool_words:  # that's pool not field
+            # treat pool as not field
+            if data['field'].lower().split()[0] in pool_words:
                 data['field'] = None
 
         for key in na_fields:
@@ -1118,7 +1204,7 @@ def main():
 
         data['api_number'] = clean_value(data['api_number'])
         if data['api_number'] == 'N/A':
-            data['api_number'] = None  # None not N/A so it can stay as join key
+            data['api_number'] = None
 
         raw_extract = data.get('raw_extract') or ''
 
@@ -1136,7 +1222,7 @@ def main():
                 f"ON CONFLICT(pdf_source) DO UPDATE SET {update_str}",
                 values,
             )
-            # same PDF again = overwrite that well and its stim rows
+            # same pdf: overwrite well and stim rows
             cur.execute("SELECT id FROM wells WHERE pdf_source=?", (data['pdf_source'],))
             well_id = cur.fetchone()[0]
             cur.execute("DELETE FROM stimulation_data WHERE well_id=?", (well_id,))
