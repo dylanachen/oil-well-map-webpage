@@ -966,14 +966,20 @@ def extract_from_pdf(pdf_path, max_pages=None):
     full_text = ''
     all_table_lines = []
     all_kv = {}
+    empty_page_nums = []  # 1-based: pages with no extractable text
+    image_page_nums = []  # 1-based: pages that contain images (text may be in image)
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
             pages = pdf.pages if max_pages is None else pdf.pages[:max_pages]
-            for page in pages:
+            for i, page in enumerate(pages):
                 t = page.extract_text()
-                if t:
+                if t and t.strip():
                     full_text += '\n' + t
+                else:
+                    empty_page_nums.append(i + 1)
+                if getattr(page, 'images', None):
+                    image_page_nums.append(i + 1)
                 tbl_lines, kv = extract_from_tables(page.extract_tables())
                 all_table_lines.extend(tbl_lines)
                 for k, v in kv.items():
@@ -997,6 +1003,23 @@ def extract_from_pdf(pdf_path, max_pages=None):
                 full_text = "\n".join(pytesseract.image_to_string(img) for img in images) + "\n" + full_text
             except Exception:
                 pass
+
+    # OCR any page that has images or had no text (so API/coords/names in images are found)
+    pages_to_ocr = sorted(set(empty_page_nums) | set(image_page_nums))
+    if pages_to_ocr and pytesseract and convert_from_path:
+        try:
+            ocr_bits = []
+            for p in pages_to_ocr:
+                try:
+                    imgs = convert_from_path(pdf_path, first_page=p, last_page=p, dpi=200)
+                    if imgs:
+                        ocr_bits.append(pytesseract.image_to_string(imgs[0]))
+                except Exception:
+                    pass
+            if ocr_bits:
+                full_text += '\n' + '\n'.join(ocr_bits)
+        except Exception:
+            pass
 
     if not full_text.strip():
         return result
