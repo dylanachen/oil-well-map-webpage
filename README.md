@@ -18,19 +18,19 @@ Apache webpage serving an interactive map of scraped oil well data. This repo in
 ```bash
 git clone https://github.com/dylanachen/oil-well-map-webpage.git
 cd oil-well-map-webpage
-python3 -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+python3 -m venv venv   # or: python3 -m venv .venv
+source venv/bin/activate   # Windows: venv\Scripts\activate  (or .venv\Scripts\activate)
 pip install -r requirements.txt
 ```
 
 ## Data
 
-Place oil well PDFs in the `pdfs/` directory. You can use the [assignment Drive folder](https://drive.google.com/drive/u/4/folders/12g-bhOylyaMoLF5djocnAeZHBx-gsxgY) or your own PDFs.
+Place oil well PDFs in the `pdfs/` directory (same name as `pdf_extractor.py`'s default `--pdf-dir`). You can use the [assignment Drive folder](https://drive.google.com/drive/u/4/folders/12g-bhOylyaMoLF5djocnAeZHBx-gsxgY) or your own PDFs.
 
 ## Run
 
 ```bash
-source venv/bin/activate
+source venv/bin/activate   # or: source .venv/bin/activate
 python pdf_extractor.py
 ```
 
@@ -40,14 +40,16 @@ python pdf_extractor.py
 |--------|---------|-------------|
 | `--pdf-dir` | `pdfs` | Directory containing PDFs |
 | `--db-path` | `oil_wells.db` | Output SQLite database path |
-| `--max-pages` | `300` | Max pages to read per PDF |
+| `--max-pages` | (no limit) | Max pages to read per PDF |
 | `--limit` | (all) | Process only the first N PDFs (e.g. `--limit 10`) |
+| `--files` | (all) | Comma-separated PDF filenames (e.g. `W28651.pdf,W20197.pdf`) |
 
 **Examples:**
 
 ```bash
 python pdf_extractor.py --limit 10            # Test run: first 10 PDFs
 python pdf_extractor.py --db-path ./wells.db  # Custom DB path
+python pdf_extractor.py --files "W28651.pdf,W20197.pdf"  # Specific PDFs only
 ```
 
 ## Database schema

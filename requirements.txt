@@ -1,7 +1,5 @@
-# DSCI-560 Lab 6: Oil Wells Data Wrangling
-# pdf_extractor.py uses pdfplumber and stdlib sqlite3 only.
 pdfplumber>=0.10.0
-
-# Optional: OCR for scanned pages (if pdfplumber returns no text)
-# pytesseract>=0.3.10
-# ocrmypdf>=15.0.0
+pdf2image>=1.16.0
+pytesseract>=0.3.10
+opencv-python-headless>=4.5.0
+numpy>=1.19.0
