@@ -116,11 +116,7 @@ python preprocess.py
 
 ## Part 2: Web Visualization
 
-In Part 2, we visualize the extracted and preprocessed results from Part 1 on an interactive map. We use:
-
-- **Flask** as a lightweight backend API that reads from `oil_wells.db` and serves well + stimulation data as JSON.
-- **OpenLayers** on the frontend to render a base map, place markers using latitude/longitude, and show popups when markers are clicked.
-- **Apache** to serve the frontend files like a real web deployment.
+In Part 2, we visualize the extracted and preprocessed results from Part 1 on an interactive map.
 
 
 ### Flask API Setup (Backend)
