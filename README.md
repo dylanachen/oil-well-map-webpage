@@ -124,7 +124,16 @@ python preprocess.py
 and server
 
     python app.py
+
+
+Apache
+
+    sudo apachectl start
     python3 -m http.server 8000
+
+    sudo mkdir -p /Library/WebServer/Documents/oilwell
+    sudo cp -R /Users/daniel/Desktop/lab6/part2_web/* /Library/WebServer/Documents/oilwell/
+    sudo chmod -R 755 /Library/WebServer/Documents/oilwell
 
 
 http://127.0.0.1:8000/
