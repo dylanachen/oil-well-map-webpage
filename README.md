@@ -153,4 +153,4 @@ Open the webpage:
 
 # Conclusion
 
-We built a full pipeline that pulls oil well info from scanned PDFs, adds extra info from drillingedge.com, and cleans everything so it is stored in a consistent database. For Part 2, we used a simple Flask JSON API with an OpenLayers map to show wells as markers, and we hide N/A fields and skip wells without valid coordinates so the popup looks clean. Overall, we focused more on making each step and easy to rerun, and later we could add better scraping fallbacks, duplicate matching, and simple filters on the map.
+We built a full pipeline that pulls oil well info from scanned PDFs, adds extra info from drillingedge.com, and cleans everything so it is stored in a consistent database. For Part 2, we used a simple Flask JSON API with an OpenLayers map to show wells as markers.
