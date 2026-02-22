@@ -1,6 +1,16 @@
-# oil-well-map-webpage
+# DSCI 560 Lab Assignment 6: Oil Well Map Webpage
 
 Apache webpage serving an interactive map of scraped oil well data. This repo includes the data pipeline: PDF extraction and SQLite database of well information and stimulation data.
+
+## Team: pylovers
+
+| Name | USC ID |
+|------|--------|
+| Dylan Chen | 6984540266 |
+| Angela Kang | 8957777203 |
+| Vincent-Daniel Yun | 4463771151 |
+
+
 
 ## What it does
 
@@ -14,6 +24,7 @@ Apache webpage serving an interactive map of scraped oil well data. This repo in
 
 - Python 3.8+
 - Linux or macOS (or Windows with the same commands)
+- Flask 
 
 ## Install
 
