@@ -124,10 +124,6 @@ In Part 2, we visualize the extracted and preprocessed results from Part 1 on an
 
 
 ### Flask API Setup (Backend)
-install dependencies:
-
-    pip install flask
-    pip install flask-cors
 
 Run the server:
 
