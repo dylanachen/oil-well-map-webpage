@@ -99,3 +99,11 @@ python preprocess.py
 **wells** – One row per PDF: `id`, `api_number`, `well_file_no`, `well_name`, `latitude`, `longitude`, `address`, `county`, `field`, `operator`, `permit_number`, `permit_date`, `total_depth`, `formation`, `stimulation_notes`, `raw_extract`, `pdf_source`, `created_at`, `well_status`, `well_type`, `closest_city`, `barrels_oil_produced`, `mcf_gas_produced`, `drillingedge_url`.
 
 **stimulation_data** – Per-well stimulation records: `id`, `well_id`, `date_stimulated`, `stimulated_formation`, `top_ft`, `bottom_ft`, `stimulation_stages`, `volume`, `volume_units`, `type_treatment`, `acid_pct`, `lbs_proppant`, `max_treatment_pressure_psi`, `max_treatment_rate`, `details`.
+
+# Part 2
+
+    mkdir -p ~/oilwell_part2_api
+    cd ~/oilwell_part2_api
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install flask
