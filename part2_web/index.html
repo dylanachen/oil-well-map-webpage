@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Oil Wells Map: Group 1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.8.0/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.8.0/dist/ol.js"></script>
+
+  <style>
+    html, body { margin: 0; padding: 0; }
+    #map { width: 100vw; height: 100vh; }
+
+    .ol-popup {
+      position: absolute;
+      background: white;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      bottom: 12px;
+      left: -50px;
+      min-width: 320px;
+      max-width: 560px;
+      max-height: 380px;
+      overflow: auto;
+      font-family: sans-serif;
+      font-size: 13px;
+    }
+    .ol-popup-closer {
+      position: absolute;
+      top: 2px;
+      right: 8px;
+      text-decoration: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .ol-popup-closer:after { content: "✖"; }
+
+    table.kv { border-collapse: collapse; width: 100%; }
+    table.kv td { border-top: 1px solid #eee; padding: 4px 6px; vertical-align: top; }
+    td.k { font-weight: 700; white-space: nowrap; width: 1%; }
+    .section { font-weight: 800; margin-top: 10px; }
+    .stim { border-top: 1px solid #ddd; padding-top: 6px; margin-top: 6px; }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <div id="popup" class="ol-popup">
+    <a id="popup-closer" class="ol-popup-closer"></a>
+    <div id="popup-content"></div>
+  </div>
+
+  <script src="./main.js"></script>
+</body>
+</html>
