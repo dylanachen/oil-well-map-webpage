@@ -138,7 +138,7 @@ Start Apache:
 Copy the Part 2 frontend files into Apache’s document root (example):
     
     sudo mkdir -p /Library/WebServer/Documents/oilwell
-    sudo cp -R lab6/part2_web/* /Library/WebServer/Documents/oilwell/
+    sudo cp -R part2_web/* /Library/WebServer/Documents/oilwell/
     sudo chmod -R 755 /Library/WebServer/Documents/oilwell
 
 Open the webpage:
