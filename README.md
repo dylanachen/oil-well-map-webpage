@@ -111,29 +111,44 @@ python preprocess.py
 
 **stimulation_data** – Per-well stimulation records: `id`, `well_id`, `date_stimulated`, `stimulated_formation`, `top_ft`, `bottom_ft`, `stimulation_stages`, `volume`, `volume_units`, `type_treatment`, `acid_pct`, `lbs_proppant`, `max_treatment_pressure_psi`, `max_treatment_rate`, `details`.
 
-# Part 2
 
-    mkdir -p ~/oilwell_part2_api
-    cd ~/oilwell_part2_api
-    python3 -m venv venv
-    source venv/bin/activate
+<br>
+
+## Part 2: Web Visualization
+
+In Part 2, we visualize the extracted and preprocessed results from Part 1 on an interactive map. We use:
+
+- **Flask** as a lightweight backend API that reads from `oil_wells.db` and serves well + stimulation data as JSON.
+- **OpenLayers** on the frontend to render a base map, place markers using latitude/longitude, and show popups when markers are clicked.
+- **Apache** to serve the frontend files like a real web deployment.
+
+
+### Flask API Setup (Backend)
+install dependencies:
+
     pip install flask
     pip install flask-cors
 
-
-and server
+Run the server:
 
     python app.py
 
+By default, Flask runs at:
 
-Apache
+    http://127.0.0.1:5050
+
+
+### Apache Setup (Frontend Hosting)
+Start Apache:
 
     sudo apachectl start
-    python3 -m http.server 8000
 
+Copy the Part 2 frontend files into Apache’s document root (example):
+    
     sudo mkdir -p /Library/WebServer/Documents/oilwell
-    sudo cp -R /Users/daniel/Desktop/lab6/part2_web/* /Library/WebServer/Documents/oilwell/
+    sudo cp -R lab6/part2_web/* /Library/WebServer/Documents/oilwell/
     sudo chmod -R 755 /Library/WebServer/Documents/oilwell
 
+Open the webpage:
 
-http://127.0.0.1:8000/
+    http://localhost/oilwell/index.html
