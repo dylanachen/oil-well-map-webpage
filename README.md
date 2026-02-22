@@ -148,3 +148,9 @@ Copy the Part 2 frontend files into Apache’s document root (example):
 Open the webpage:
 
     http://localhost/oilwell/index.html
+
+## Expected page:
+
+<img width="1791" height="908" alt="Image" src="https://github.com/user-attachments/assets/a9bcedb8-1241-4565-8347-bdfda46702f4" />
+
+<img width="1796" height="913" alt="Image" src="https://github.com/user-attachments/assets/c1b40113-221f-4dbc-b606-83ab018fc48d" />
